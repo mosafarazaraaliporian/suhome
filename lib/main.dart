@@ -1,13 +1,14 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+
+import 'src/browser_launcher_stub.dart'
+    if (dart.library.html) 'src/browser_launcher_web.dart' as browser_launcher;
 
 final _logger = Logger(
   printer: PrettyPrinter(methodCount: 0, colors: true),
@@ -168,22 +169,22 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
     _logger.d('Opening URL: ${uri.toString()}');
 
     if (kIsWeb) {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.platformDefault);
-      } else {
-        _logger.w('Cannot launch URL on web');
-      }
+      _openInPhoneSizedWindow(uri.toString());
     } else {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => _WebViewPage(
+          builder: (context) => _PhoneWebViewPage(
             url: uri.toString(),
             title: uri.host,
           ),
         ),
       );
     }
+  }
+
+  void _openInPhoneSizedWindow(String url) {
+    browser_launcher.openInPhoneSizedWindow(url);
   }
 
   @override
@@ -588,23 +589,27 @@ class _ShortcutCard extends StatelessWidget {
   }
 }
 
-class _WebViewPage extends StatefulWidget {
+/// اندازه گوشی: 390x844 (مشابه iPhone 14)
+const _phoneWidth = 390.0;
+const _phoneHeight = 844.0;
+
+class _PhoneWebViewPage extends StatefulWidget {
   final String url;
   final String title;
 
-  const _WebViewPage({required this.url, required this.title});
+  const _PhoneWebViewPage({required this.url, required this.title});
 
   @override
-  State<_WebViewPage> createState() => _WebViewPageState();
+  State<_PhoneWebViewPage> createState() => _PhoneWebViewPageState();
 }
 
-class _WebViewPageState extends State<_WebViewPage> {
+class _PhoneWebViewPageState extends State<_PhoneWebViewPage> {
   late final WebViewController _controller;
 
   @override
   void initState() {
     super.initState();
-    _logger.d('WebView loading: ${widget.url}');
+    _logger.d('Phone WebView loading: ${widget.url}');
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..loadRequest(Uri.parse(widget.url));
@@ -613,6 +618,7 @@ class _WebViewPageState extends State<_WebViewPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
         title: Text(widget.title),
         backgroundColor: const Color(0xFF1E1E2E),
@@ -622,7 +628,25 @@ class _WebViewPageState extends State<_WebViewPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: WebViewWidget(controller: _controller),
+      body: Center(
+        child: Container(
+          width: _phoneWidth,
+          height: _phoneHeight,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(40),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 20,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: WebViewWidget(controller: _controller),
+        ),
+      ),
     );
   }
 }
