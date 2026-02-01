@@ -7,10 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-
-import 'src/browser_launcher_stub.dart'
-    if (dart.library.html) 'src/browser_launcher_web.dart' as browser_launcher;
+import 'src/phone_webview_impl.dart';
 
 final _logger = Logger(
   printer: PrettyPrinter(methodCount: 0, colors: true),
@@ -183,23 +180,15 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
     }
     _logger.d('Opening URL: ${uri.toString()}');
 
-    if (kIsWeb) {
-      _openInPhoneSizedWindow(uri.toString());
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => _PhoneWebViewPage(
-            url: uri.toString(),
-            title: uri.host,
-          ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _PhoneWebViewPage(
+          url: uri.toString(),
+          title: uri.host,
         ),
-      );
-    }
-  }
-
-  void _openInPhoneSizedWindow(String url) {
-    browser_launcher.openInPhoneSizedWindow(url);
+      ),
+    );
   }
 
   void _onSearch(String query) {
@@ -777,13 +766,9 @@ class _ShortcutCard extends StatelessWidget {
   }
 }
 
-/// اندازه گوشی: 390x844 (مشابه iPhone 14)
-const _phoneWidth = 390.0;
-const _phoneHeight = 844.0;
-
 enum _StorageMode { shared, isolated }
 
-class _PhoneWebViewPage extends StatefulWidget {
+class _PhoneWebViewPage extends StatelessWidget {
   final String url;
   final String title;
   final bool useIsolatedStorage;
@@ -794,56 +779,35 @@ class _PhoneWebViewPage extends StatefulWidget {
     this.useIsolatedStorage = false,
   });
 
-  @override
-  State<_PhoneWebViewPage> createState() => _PhoneWebViewPageState();
-}
-
-class _PhoneWebViewPageState extends State<_PhoneWebViewPage> {
-  late final WebViewController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _logger.d('Phone WebView loading: ${widget.url} (isolated: ${widget.useIsolatedStorage})');
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..loadRequest(Uri.parse(widget.url));
-    // برای حالت جدا: هر WebView جدید به صورت پیش‌فرض storage جدا داره
-    // روی ویندوز هر WebViewController مستقل هست
-  }
-
-  Future<void> _showStorageDialogAndOpen({required bool isClone}) async {
+  Future<void> _showStorageDialogAndOpen(
+    BuildContext context, {
+    required bool isClone,
+  }) async {
     final mode = await showDialog<_StorageMode>(
       context: context,
       builder: (context) => _StorageModeDialog(isClone: isClone),
     );
-    if (mode == null || !mounted) return;
+    if (mode == null || !context.mounted) return;
     _logger.d('Opening ${isClone ? "clone" : "open"} with storage: ${mode.name}');
-    if (kIsWeb) {
-      browser_launcher.openInPhoneSizedWindow(
-        widget.url,
-        isolated: mode == _StorageMode.isolated,
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => _PhoneWebViewPage(
-            url: widget.url,
-            title: widget.title,
-            useIsolatedStorage: mode == _StorageMode.isolated,
-          ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _PhoneWebViewPage(
+          url: url,
+          title: title,
+          useIsolatedStorage: mode == _StorageMode.isolated,
         ),
-      );
-    }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    _logger.d('Phone WebView loading: $url (isolated: $useIsolatedStorage)');
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Text(title),
         backgroundColor: const Color(0xFF1E1E2E),
         foregroundColor: Colors.white,
         leading: IconButton(
@@ -853,37 +817,28 @@ class _PhoneWebViewPageState extends State<_PhoneWebViewPage> {
       ),
       body: Stack(
         children: [
-          Center(
-            child: Container(
-              width: _phoneWidth,
-              height: _phoneHeight,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(40),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: WebViewWidget(controller: _controller),
+          buildPhoneWebView(
+            url: url,
+            title: title,
+            useIsolatedStorage: useIsolatedStorage,
+            onBack: () => Navigator.pop(context),
+            onCloneOrOpen: (isClone) => _showStorageDialogAndOpen(
+              context,
+              isClone: isClone,
             ),
           ),
           Positioned(
             right: 0,
             top: 0,
             bottom: 0,
-            child: _buildRightSidebar(),
+            child: _buildRightSidebar(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRightSidebar() {
+  Widget _buildRightSidebar(BuildContext context) {
     return Container(
       width: 56,
       margin: const EdgeInsets.only(top: 60, bottom: 40),
@@ -899,13 +854,13 @@ class _PhoneWebViewPageState extends State<_PhoneWebViewPage> {
         children: [
           _ToolbarButton(
             icon: Icons.copy_all,
-            onPressed: () => _showStorageDialogAndOpen(isClone: true),
+            onPressed: () => _showStorageDialogAndOpen(context, isClone: true),
             tooltip: 'کلون',
           ),
           const SizedBox(height: 16),
           _ToolbarButton(
             icon: Icons.open_in_new,
-            onPressed: () => _showStorageDialogAndOpen(isClone: false),
+            onPressed: () => _showStorageDialogAndOpen(context, isClone: false),
             tooltip: 'باز کن',
           ),
         ],
