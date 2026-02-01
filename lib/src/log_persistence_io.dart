@@ -10,13 +10,13 @@ Future<void> persistLog(String logLine) async {
     final dir = await getApplicationSupportDirectory();
     final file = File('${dir.path}/$_logFileName');
     final content = '${DateTime.now().toIso8601String()} $logLine\n';
-    await file.writeAsString(content, mode: FileMode.append);
-    final stat = await file.stat();
+    file.writeAsStringSync(content, mode: FileMode.append, flush: true);
+    final stat = file.statSync();
     if (stat.size > _maxLogSize) {
-      final text = await file.readAsString();
+      final text = file.readAsStringSync();
       final lines = text.split('\n');
       final trimmed = lines.sublist(lines.length ~/ 2).join('\n');
-      await file.writeAsString(trimmed);
+      file.writeAsStringSync(trimmed, flush: true);
     }
   } catch (_) {}
 }

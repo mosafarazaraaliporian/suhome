@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'src/app_logger.dart';
 import 'src/log_persistence.dart';
-import 'src/phone_webview_impl.dart';
 
 final _logger = appLogger;
 
@@ -184,27 +184,36 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
   }
 
   Future<void> _openUrl(String url) async {
-    _logger.d('_openUrl called with: $url');
+    _logger.d('_openUrl START url=$url');
     try {
       Uri uri = Uri.tryParse(url) ?? Uri.parse('https://$url');
       if (!uri.hasScheme) {
         uri = Uri.parse('https://$url');
       }
-      _logger.d('Opening URL in-app (phone view): ${uri.toString()}');
+      _logger.d('_openUrl launching: ${uri.toString()}');
 
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => _PhoneWebViewPage(
-            url: uri.toString(),
-            title: uri.host,
-          ),
-        ),
-      );
-      _logger.d('Returned from phone WebView');
+      if (await canLaunchUrl(uri)) {
+        _logger.d('_openUrl canLaunch=true, calling launchUrl inAppWebView');
+        final ok = await launchUrl(
+          uri,
+          mode: LaunchMode.inAppWebView,
+          webViewConfiguration: const WebViewConfiguration(),
+        );
+        _logger.d('_openUrl launchUrl result=$ok');
+        if (!ok && mounted) {
+          _logger.w('_openUrl inAppWebView failed, trying external');
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      } else {
+        _logger.w('_openUrl canLaunch=false for $uri');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Cannot open: $uri')),
+          );
+        }
+      }
     } catch (e, st) {
-      _logger.e('_openUrl failed', error: e, stackTrace: st);
+      _logger.e('_openUrl FAILED', error: e, stackTrace: st);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
@@ -878,70 +887,6 @@ class _ShortcutCard extends StatelessWidget {
     } catch (_) {
       return url.length > 15 ? '${url.substring(0, 15)}...' : url;
     }
-  }
-}
-
-class _PhoneWebViewPage extends StatelessWidget {
-  final String url;
-  final String title;
-
-  const _PhoneWebViewPage({required this.url, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    _logger.d('Phone WebView page: $url');
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(title),
-        backgroundColor: const Color(0xFF1E1E2E),
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Row(
-        children: [
-          Expanded(
-            child: buildPhoneWebView(
-              url: url,
-              title: title,
-              onBack: () => Navigator.pop(context),
-            ),
-          ),
-          _buildRightSidebar(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRightSidebar(BuildContext context) {
-    return Container(
-      width: 56,
-      margin: const EdgeInsets.only(top: 60, bottom: 40, right: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _ToolbarButton(
-            icon: Icons.bug_report,
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (context) => _LogViewerSheet(),
-              );
-            },
-            tooltip: 'View logs',
-          ),
-        ],
-      ),
-    );
   }
 }
 
