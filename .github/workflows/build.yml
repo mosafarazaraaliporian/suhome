@@ -1,0 +1,51 @@
+name: Build Flutter (Windows)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Build Windows
+        run: flutter build windows
+
+      - name: Zip build output
+        run: |
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "suhome-windows.zip"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: suhome-windows
+          path: build/windows/x64/runner/Release/
+
+      - name: Send to Telegram
+        if: success() && secrets.TELEGRAM_BOT_TOKEN != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          $message = "✅ Build موفق!`n`n📦 پروژه: suhome`n🪟 پلتفرم: Windows`n📅 زمان: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+          $body = @{chat_id=$env:TELEGRAM_CHAT_ID; text=$message} | ConvertTo-Json
+          Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage" -Method Post -Body $body -ContentType "application/json; charset=utf-8"
+          curl.exe -F "document=@suhome-windows.zip" -F "chat_id=$env:TELEGRAM_CHAT_ID" -F "caption=📦 suhome Windows Build" "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendDocument"
