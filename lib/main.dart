@@ -593,11 +593,18 @@ class _ShortcutCard extends StatelessWidget {
 const _phoneWidth = 390.0;
 const _phoneHeight = 844.0;
 
+enum _StorageMode { shared, isolated }
+
 class _PhoneWebViewPage extends StatefulWidget {
   final String url;
   final String title;
+  final bool useIsolatedStorage;
 
-  const _PhoneWebViewPage({required this.url, required this.title});
+  const _PhoneWebViewPage({
+    required this.url,
+    required this.title,
+    this.useIsolatedStorage = false,
+  });
 
   @override
   State<_PhoneWebViewPage> createState() => _PhoneWebViewPageState();
@@ -609,10 +616,38 @@ class _PhoneWebViewPageState extends State<_PhoneWebViewPage> {
   @override
   void initState() {
     super.initState();
-    _logger.d('Phone WebView loading: ${widget.url}');
+    _logger.d('Phone WebView loading: ${widget.url} (isolated: ${widget.useIsolatedStorage})');
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..loadRequest(Uri.parse(widget.url));
+    // برای حالت جدا: هر WebView جدید به صورت پیش‌فرض storage جدا داره
+    // روی ویندوز هر WebViewController مستقل هست
+  }
+
+  Future<void> _showStorageDialogAndOpen({required bool isClone}) async {
+    final mode = await showDialog<_StorageMode>(
+      context: context,
+      builder: (context) => _StorageModeDialog(isClone: isClone),
+    );
+    if (mode == null || !mounted) return;
+    _logger.d('Opening ${isClone ? "clone" : "open"} with storage: ${mode.name}');
+    if (kIsWeb) {
+      browser_launcher.openInPhoneSizedWindow(
+        widget.url,
+        isolated: mode == _StorageMode.isolated,
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => _PhoneWebViewPage(
+            url: widget.url,
+            title: widget.title,
+            useIsolatedStorage: mode == _StorageMode.isolated,
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -628,25 +663,100 @@ class _PhoneWebViewPageState extends State<_PhoneWebViewPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Center(
-        child: Container(
-          width: _phoneWidth,
-          height: _phoneHeight,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(40),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 20,
-                spreadRadius: 5,
+      body: Stack(
+        children: [
+          Center(
+            child: Container(
+              width: _phoneWidth,
+              height: _phoneHeight,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(40),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 20,
+                    spreadRadius: 5,
+                  ),
+                ],
               ),
-            ],
+              clipBehavior: Clip.antiAlias,
+              child: WebViewWidget(controller: _controller),
+            ),
           ),
-          clipBehavior: Clip.antiAlias,
-          child: WebViewWidget(controller: _controller),
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: _buildRightSidebar(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRightSidebar() {
+    return Container(
+      width: 56,
+      margin: const EdgeInsets.only(top: 60, bottom: 40),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.4),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(12),
+          bottomLeft: Radius.circular(12),
         ),
       ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _ToolbarButton(
+            icon: Icons.copy_all,
+            onPressed: () => _showStorageDialogAndOpen(isClone: true),
+            tooltip: 'کلون',
+          ),
+          const SizedBox(height: 16),
+          _ToolbarButton(
+            icon: Icons.open_in_new,
+            onPressed: () => _showStorageDialogAndOpen(isClone: false),
+            tooltip: 'باز کن',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StorageModeDialog extends StatelessWidget {
+  final bool isClone;
+
+  const _StorageModeDialog({required this.isClone});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1E1E2E),
+      title: Text(
+        'کوکی و دیتا',
+        style: const TextStyle(color: Colors.white),
+      ),
+      content: Text(
+        'کوکی و دیتا مشترک باشه یا جدا؟',
+        style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, _StorageMode.shared),
+          child: const Text('مشترک (همون حساب)'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _StorageMode.isolated),
+          child: const Text('جدا (حساب جدید)'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('انصراف'),
+        ),
+      ],
     );
   }
 }
