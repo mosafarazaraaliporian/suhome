@@ -40,7 +40,8 @@ jobs:
           path: build/windows/x64/runner/Release/
 
       - name: Send to Telegram
-        if: success() && secrets.TELEGRAM_BOT_TOKEN != ''
+        if: success()
+        continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
