@@ -119,7 +119,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
       width: 56,
       margin: const EdgeInsets.only(top: 40, bottom: 40),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.4),
+        color: Colors.black.withValues(alpha: 0.4),
         borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(12),
           bottomLeft: Radius.circular(12),
@@ -178,12 +178,12 @@ class _ToolbarButton extends StatelessWidget {
                   ],
                 )
               : null,
-          color: isPrimary ? null : Colors.white.withOpacity(0.1),
+          color: isPrimary ? null : Colors.white.withValues(alpha: 0.1),
           shape: BoxShape.circle,
           boxShadow: isPrimary
               ? [
                   BoxShadow(
-                    color: Colors.blue.withOpacity(0.5),
+                    color: Colors.blue.withValues(alpha: 0.5),
                     blurRadius: 8,
                     spreadRadius: 0,
                   ),
@@ -212,7 +212,7 @@ class _CosmicPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.03)
+      ..color = Colors.white.withValues(alpha: 0.03)
       ..style = PaintingStyle.fill;
 
     final random = _SeededRandom(42);
