@@ -2,11 +2,19 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+final _logger = Logger(
+  printer: PrettyPrinter(methodCount: 0, colors: true),
+);
+
 void main() {
+  _logger.i('Suhome app starting');
   runApp(const SuhomeApp());
 }
 
@@ -39,11 +47,13 @@ class ShortcutItem {
   Uint8List? get iconBytes =>
       iconBase64 != null ? base64Decode(iconBase64!) : null;
 
+  /// DuckDuckGo favicon - CORS-friendly for web
   String get faviconUrl {
     try {
       final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
-      return 'https://www.google.com/s2/favicons?domain=${uri.host}&sz=64';
-    } catch (_) {
+      return 'https://icons.duckduckgo.com/ip3/${uri.host}.ico';
+    } catch (e) {
+      _logger.w('Favicon URL parse error: $e');
       return '';
     }
   }
@@ -78,23 +88,34 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
   }
 
   Future<void> _loadShortcuts() async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = prefs.getString(_storageKey);
-    if (json != null) {
-      final list = (jsonDecode(json) as List)
-          .map((e) => ShortcutItem.fromJson(e as Map<String, dynamic>))
-          .toList();
-      if (mounted) setState(() => _shortcuts = list);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = prefs.getString(_storageKey);
+      if (json != null) {
+        final list = (jsonDecode(json) as List)
+            .map((e) => ShortcutItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+        if (mounted) setState(() => _shortcuts = list);
+        _logger.i('Loaded ${list.length} shortcuts');
+      }
+    } catch (e) {
+      _logger.e('Load shortcuts failed', error: e);
     }
   }
 
   Future<void> _saveShortcuts() async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(_shortcuts.map((e) => e.toJson()).toList());
-    await prefs.setString(_storageKey, json);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = jsonEncode(_shortcuts.map((e) => e.toJson()).toList());
+      await prefs.setString(_storageKey, json);
+      _logger.d('Saved ${_shortcuts.length} shortcuts');
+    } catch (e) {
+      _logger.e('Save shortcuts failed', error: e);
+    }
   }
 
   void _onAddPressed() {
+    _logger.d('Add shortcut pressed');
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -104,6 +125,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
           setState(() => _shortcuts.add(item));
           _saveShortcuts();
           Navigator.pop(context);
+          _logger.i('Shortcut saved: ${item.url}');
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('ذخیره شد'),
@@ -116,6 +138,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
   }
 
   Future<void> _onWallpaperPressed() async {
+    _logger.d('Wallpaper picker opened');
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: false,
@@ -126,6 +149,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
         _wallpaperBytes = result.files.single.bytes;
       });
       if (mounted) {
+        _logger.i('Wallpaper changed');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('والپیپر عوض شد'),
@@ -136,20 +160,30 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
     }
   }
 
-  void _openUrl(String url) {
+  Future<void> _openUrl(String url) async {
     Uri uri = Uri.tryParse(url) ?? Uri.parse('https://$url');
     if (!uri.hasScheme) {
       uri = Uri.parse('https://$url');
     }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => _WebViewPage(
-          url: uri.toString(),
-          title: uri.host,
+    _logger.d('Opening URL: ${uri.toString()}');
+
+    if (kIsWeb) {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      } else {
+        _logger.w('Cannot launch URL on web');
+      }
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => _WebViewPage(
+            url: uri.toString(),
+            title: uri.host,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override
@@ -215,6 +249,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
                           onLongPress: () {
                             setState(() => _shortcuts.removeAt(index));
                             _saveShortcuts();
+                            _logger.d('Shortcut removed: ${item.url}');
                           },
                         );
                       },
@@ -289,12 +324,14 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
     );
     if (result != null && result.files.single.bytes != null) {
       setState(() => _customIconBytes = result.files.single.bytes);
+      _logger.d('Custom icon selected');
     }
   }
 
   void _save() {
     final url = _urlController.text.trim();
     if (url.isEmpty) {
+      _logger.w('Save attempted with empty URL');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('آدرس سایت رو وارد کن'),
@@ -525,13 +562,19 @@ class _ShortcutCard extends StatelessWidget {
     if (item.faviconUrl.isEmpty) {
       return Icon(Icons.link, color: Colors.blue.shade300, size: 32);
     }
+    // On web, Image.network for favicon can hit CORS - use link icon
+    if (kIsWeb) {
+      return Icon(Icons.link, color: Colors.blue.shade300, size: 32);
+    }
     return Image.network(
       item.faviconUrl,
       fit: BoxFit.contain,
       width: 48,
       height: 48,
-      errorBuilder: (context, error, stackTrace) =>
-          Icon(Icons.link, color: Colors.blue.shade300, size: 32),
+      errorBuilder: (context, error, stackTrace) {
+        _logger.d('Favicon load failed for ${item.url}: $error');
+        return Icon(Icons.link, color: Colors.blue.shade300, size: 32);
+      },
     );
   }
 
@@ -561,6 +604,7 @@ class _WebViewPageState extends State<_WebViewPage> {
   @override
   void initState() {
     super.initState();
+    _logger.d('WebView loading: ${widget.url}');
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..loadRequest(Uri.parse(widget.url));
