@@ -11,15 +11,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:suhome/main.dart';
 
 void main() {
-  testWidgets('App loads and add button works', (WidgetTester tester) async {
+  testWidgets('App loads and add sheet opens', (WidgetTester tester) async {
     await tester.pumpWidget(const SuhomeApp());
 
     expect(find.byIcon(Icons.add), findsOneWidget);
     expect(find.byIcon(Icons.wallpaper), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.textContaining('دکمه + زده شد!'), findsOneWidget);
+    expect(find.text('سایت جدید'), findsOneWidget);
+    expect(find.text('ذخیره'), findsOneWidget);
   });
 }
