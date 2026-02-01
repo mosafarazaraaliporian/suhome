@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'src/app_logger.dart';
 import 'src/log_persistence.dart';
-import 'src/phone_webview_impl.dart';
 
 final _logger = appLogger;
 
@@ -190,22 +190,19 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
       if (!uri.hasScheme) {
         uri = Uri.parse('https://$url');
       }
-      _logger.d('Opening URL: ${uri.toString()}');
+      _logger.d('Opening URL in browser: ${uri.toString()}');
 
-      if (!mounted) {
-        _logger.w('Context not mounted, skipping navigation');
-        return;
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        _logger.d('URL launched successfully');
+      } else {
+        _logger.w('Cannot launch URL: $uri');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Cannot open: $uri')),
+          );
+        }
       }
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => _PhoneWebViewPage(
-            url: uri.toString(),
-            title: uri.host,
-          ),
-        ),
-      );
-      _logger.d('Returned from WebView page');
     } catch (e, st) {
       _logger.e('_openUrl failed', error: e, stackTrace: st);
       if (mounted) {
@@ -449,13 +446,10 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
   Widget _buildRightToolbar() {
     return Container(
       width: 56,
-      margin: const EdgeInsets.only(top: 40, bottom: 40),
+      margin: const EdgeInsets.only(top: 40, bottom: 40, right: 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.4),
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-          bottomLeft: Radius.circular(12),
-        ),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -884,159 +878,6 @@ class _ShortcutCard extends StatelessWidget {
     } catch (_) {
       return url.length > 15 ? '${url.substring(0, 15)}...' : url;
     }
-  }
-}
-
-enum _StorageMode { shared, isolated }
-
-class _PhoneWebViewPage extends StatelessWidget {
-  final String url;
-  final String title;
-  final bool useIsolatedStorage;
-
-  const _PhoneWebViewPage({
-    required this.url,
-    required this.title,
-    this.useIsolatedStorage = false,
-  });
-
-  Future<void> _showStorageDialogAndOpen(
-    BuildContext context, {
-    required bool isClone,
-  }) async {
-    final mode = await showDialog<_StorageMode>(
-      context: context,
-      builder: (context) => _StorageModeDialog(isClone: isClone),
-    );
-    if (mode == null || !context.mounted) return;
-    _logger.d('Opening ${isClone ? "clone" : "open"} with storage: ${mode.name}');
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => _PhoneWebViewPage(
-          url: url,
-          title: title,
-          useIsolatedStorage: mode == _StorageMode.isolated,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    _logger.d('Phone WebView loading: $url (isolated: $useIsolatedStorage)');
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(title),
-        backgroundColor: const Color(0xFF1E1E2E),
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Stack(
-        children: [
-          buildPhoneWebView(
-            url: url,
-            title: title,
-            useIsolatedStorage: useIsolatedStorage,
-            onBack: () => Navigator.pop(context),
-            onCloneOrOpen: (isClone) => _showStorageDialogAndOpen(
-              context,
-              isClone: isClone,
-            ),
-          ),
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: _buildRightSidebar(context),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLogViewer(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _LogViewerSheet(),
-    );
-  }
-
-  Widget _buildRightSidebar(BuildContext context) {
-    return Container(
-      width: 56,
-      margin: const EdgeInsets.only(top: 60, bottom: 40),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-          bottomLeft: Radius.circular(12),
-        ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _ToolbarButton(
-            icon: Icons.copy_all,
-            onPressed: () => _showStorageDialogAndOpen(context, isClone: true),
-            tooltip: 'Clone',
-          ),
-          const SizedBox(height: 16),
-          _ToolbarButton(
-            icon: Icons.open_in_new,
-            onPressed: () => _showStorageDialogAndOpen(context, isClone: false),
-            tooltip: 'Open',
-          ),
-          const SizedBox(height: 16),
-          _ToolbarButton(
-            icon: Icons.bug_report,
-            onPressed: () => _showLogViewer(context),
-            tooltip: 'View logs',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StorageModeDialog extends StatelessWidget {
-  final bool isClone;
-
-  const _StorageModeDialog({required this.isClone});
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: const Color(0xFF1E1E2E),
-      title: const Text(
-        'Cookies & data',
-        style: TextStyle(color: Colors.white),
-      ),
-      content: Text(
-        'Share cookies & data or isolate?',
-        style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, _StorageMode.shared),
-          child: const Text('Shared (same account)'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, _StorageMode.isolated),
-          child: const Text('Isolated (new session)'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-      ],
-    );
   }
 }
 
