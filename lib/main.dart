@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -81,11 +83,24 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
   Uint8List? _wallpaperBytes;
   List<ShortcutItem> _shortcuts = [];
   static const _storageKey = 'suhome_shortcuts';
+  DateTime _now = DateTime.now();
+  Timer? _timer;
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadShortcuts();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadShortcuts() async {
@@ -187,6 +202,170 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
     browser_launcher.openInPhoneSizedWindow(url);
   }
 
+  void _onSearch(String query) {
+    final q = query.trim();
+    if (q.isEmpty) return;
+    final uri = Uri.tryParse(q);
+    final isUrl = uri != null && (uri.hasScheme || q.contains('.'));
+    final url = isUrl
+        ? (uri.hasScheme ? uri.toString() : 'https://$q')
+        : 'https://www.google.com/search?q=${Uri.encodeComponent(q)}';
+    _openUrl(url);
+    _searchController.clear();
+  }
+
+  Widget _buildHeader() {
+    final j = Jalali.fromDateTime(_now);
+    final weekday = j.formatter.wN; // نام روز
+    final dateStr = j.formatter.d; // روز
+    final monthStr = j.formatter.mN; // نام ماه
+    final yearStr = j.formatter.y; // سال
+    final timeStr =
+        '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}:${_now.second.toString().padLeft(2, '0')}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // تاریخ و ساعت شمسی
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: 0.12),
+                Colors.white.withValues(alpha: 0.06),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.15),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$weekday $dateStr $monthStr $yearStr',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.schedule_rounded,
+                        color: Colors.blue.shade300,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        timeStr,
+                        style: TextStyle(
+                          color: Colors.blue.shade200,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.blue.withValues(alpha: 0.4),
+                    width: 1,
+                  ),
+                ),
+                child: Icon(
+                  Icons.calendar_today_rounded,
+                  color: Colors.blue.shade200,
+                  size: 28,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // نوار جستجو
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TextField(
+            controller: _searchController,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+            ),
+            decoration: InputDecoration(
+              hintText: 'جستجو یا آدرس سایت...',
+              hintStyle: TextStyle(
+                color: Colors.white.withValues(alpha: 0.45),
+                fontSize: 15,
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                color: Colors.white.withValues(alpha: 0.6),
+                size: 24,
+              ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  Icons.arrow_forward_rounded,
+                  color: Colors.blue.shade300,
+                  size: 22,
+                ),
+                onPressed: () => _onSearch(_searchController.text),
+              ),
+              filled: true,
+              fillColor: Colors.transparent,
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 16,
+              ),
+            ),
+            textInputAction: TextInputAction.search,
+            onSubmitted: _onSearch,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -222,18 +401,24 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.only(
-                  left: 32, right: 80, top: 40, bottom: 40),
-              child: _shortcuts.isEmpty
-                  ? Center(
-                      child: Text(
-                        'روی + بزن و سایت اضافه کن',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                          fontSize: 16,
-                        ),
-                      ),
-                    )
-                  : GridView.builder(
+                  left: 32, right: 80, top: 24, bottom: 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: 24),
+                  Expanded(
+                    child: _shortcuts.isEmpty
+                        ? Center(
+                            child: Text(
+                              'روی + بزن و سایت اضافه کن',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 16,
+                              ),
+                            ),
+                          )
+                        : GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
@@ -255,6 +440,9 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
                         );
                       },
                     ),
+                  ),
+                ],
+              ),
             ),
           ),
           Positioned(
