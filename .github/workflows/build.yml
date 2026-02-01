@@ -46,7 +46,15 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          $message = "✅ Build موفق!`n`n📦 پروژه: suhome`n🪟 پلتفرم: Windows`n📅 زمان: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
-          $body = @{chat_id=$env:TELEGRAM_CHAT_ID; text=$message} | ConvertTo-Json
-          Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage" -Method Post -Body $body -ContentType "application/json; charset=utf-8"
-          curl.exe -F "document=@suhome-windows.zip" -F "chat_id=$env:TELEGRAM_CHAT_ID" -F "caption=📦 suhome Windows Build" "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendDocument"
+          if ([string]::IsNullOrEmpty($env:TELEGRAM_BOT_TOKEN) -or [string]::IsNullOrEmpty($env:TELEGRAM_CHAT_ID)) {
+            Write-Host "Skipping Telegram: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set in repo Secrets"
+            exit 0
+          }
+          try {
+            $message = "✅ Build موفق!`n`n📦 پروژه: suhome`n🪟 پلتفرم: Windows`n📅 زمان: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+            $body = @{chat_id=$env:TELEGRAM_CHAT_ID; text=$message} | ConvertTo-Json
+            Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage" -Method Post -Body $body -ContentType "application/json; charset=utf-8"
+            curl.exe -F "document=@suhome-windows.zip" -F "chat_id=$env:TELEGRAM_CHAT_ID" -F "caption=📦 suhome Windows Build" "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendDocument"
+          } catch {
+            Write-Host "Telegram failed (check token/chat_id in Secrets): $_"
+          }
