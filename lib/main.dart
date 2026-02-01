@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
   runApp(const SuhomeApp());
@@ -31,15 +31,30 @@ class SuhomeApp extends StatelessWidget {
 }
 
 class ShortcutItem {
-  final int iconCodePoint;
+  final String? iconBase64;
   final String url;
 
-  ShortcutItem({required this.iconCodePoint, required this.url});
+  ShortcutItem({this.iconBase64, required this.url});
 
-  Map<String, dynamic> toJson() => {'icon': iconCodePoint, 'url': url};
+  Uint8List? get iconBytes =>
+      iconBase64 != null ? base64Decode(iconBase64!) : null;
+
+  String get faviconUrl {
+    try {
+      final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
+      return 'https://www.google.com/s2/favicons?domain=${uri.host}&sz=64';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (iconBase64 != null) 'icon': iconBase64,
+        'url': url,
+      };
 
   factory ShortcutItem.fromJson(Map<String, dynamic> json) => ShortcutItem(
-        iconCodePoint: json['icon'] as int? ?? Icons.link.codePoint,
+        iconBase64: json['icon'] as String?,
         url: json['url'] as String? ?? '',
       );
 }
@@ -86,9 +101,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
       backgroundColor: Colors.transparent,
       builder: (context) => _AddShortcutSheet(
         onSave: (item) {
-          setState(() {
-            _shortcuts.add(item);
-          });
+          setState(() => _shortcuts.add(item));
           _saveShortcuts();
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -123,14 +136,20 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
     }
   }
 
-  Future<void> _openUrl(String url) async {
-    var uri = Uri.tryParse(url);
-    if (uri == null || !uri.hasScheme) {
+  void _openUrl(String url) {
+    Uri uri = Uri.tryParse(url) ?? Uri.parse('https://$url');
+    if (!uri.hasScheme) {
       uri = Uri.parse('https://$url');
     }
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _WebViewPage(
+          url: uri.toString(),
+          title: uri.host,
+        ),
+      ),
+    );
   }
 
   @override
@@ -165,10 +184,10 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
               painter: _CosmicPainter(),
               size: Size.infinite,
             ),
-          // Shortcuts grid
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.only(left: 32, right: 80, top: 40, bottom: 40),
+              padding: const EdgeInsets.only(
+                  left: 32, right: 80, top: 40, bottom: 40),
               child: _shortcuts.isEmpty
                   ? Center(
                       child: Text(
@@ -180,7 +199,8 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
                       ),
                     )
                   : GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
                         mainAxisSpacing: 24,
                         crossAxisSpacing: 24,
@@ -190,8 +210,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
                       itemBuilder: (context, index) {
                         final item = _shortcuts[index];
                         return _ShortcutCard(
-                          icon: IconData(item.iconCodePoint, fontFamily: 'MaterialIcons'),
-                          url: item.url,
+                          item: item,
                           onTap: () => _openUrl(item.url),
                           onLongPress: () {
                             setState(() => _shortcuts.removeAt(index));
@@ -254,32 +273,23 @@ class _AddShortcutSheet extends StatefulWidget {
 }
 
 class _AddShortcutSheetState extends State<_AddShortcutSheet> {
-  int _selectedIconCodePoint = Icons.link.codePoint;
+  Uint8List? _customIconBytes;
   final _urlController = TextEditingController();
-
-  static final _iconOptions = [
-    Icons.link,
-    Icons.language,
-    Icons.explore,
-    Icons.home,
-    Icons.star,
-    Icons.favorite,
-    Icons.school,
-    Icons.work,
-    Icons.shopping_cart,
-    Icons.video_library,
-    Icons.music_note,
-    Icons.image,
-    Icons.chat,
-    Icons.email,
-    Icons.calendar_today,
-    Icons.settings,
-  ];
 
   @override
   void dispose() {
     _urlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickIcon() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    if (result != null && result.files.single.bytes != null) {
+      setState(() => _customIconBytes = result.files.single.bytes);
+    }
   }
 
   void _save() {
@@ -294,7 +304,9 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
       return;
     }
     widget.onSave(ShortcutItem(
-      iconCodePoint: _selectedIconCodePoint,
+      iconBase64: _customIconBytes != null
+          ? base64Encode(_customIconBytes!)
+          : null,
       url: url,
     ));
   }
@@ -336,39 +348,72 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'ایکن',
+              'ایکن (اختیاری - از فایل)',
               style: TextStyle(color: Colors.white70, fontSize: 14),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: _iconOptions.map((icon) {
-                final isSelected = icon.codePoint == _selectedIconCodePoint;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedIconCodePoint = icon.codePoint),
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? Colors.blue.withValues(alpha: 0.4)
-                          : Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected ? Colors.blue : Colors.transparent,
-                        width: 2,
-                      ),
-                    ),
-                    child: Icon(
-                      icon,
-                      color: isSelected ? Colors.blue.shade300 : Colors.white70,
-                      size: 26,
-                    ),
-                  ),
-                );
-              }).toList(),
+            const SizedBox(height: 8),
+            Text(
+              'اگر ایکون نزاری، فاویکون سایت خودش نمایش داده میشه',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 12,
+              ),
             ),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: _pickIcon,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    width: 2,
+                  ),
+                ),
+                child: _customIconBytes != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.memory(
+                          _customIconBytes!,
+                          fit: BoxFit.cover,
+                          width: 76,
+                          height: 76,
+                        ),
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.add_photo_alternate,
+                            color: Colors.white.withValues(alpha: 0.5),
+                            size: 32,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'اضافه کن',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            if (_customIconBytes != null) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => setState(() => _customIconBytes = null),
+                icon: const Icon(Icons.close, size: 18),
+                label: const Text('حذف ایکون'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red.shade300,
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             const Text(
               'آدرس سایت',
@@ -421,21 +466,19 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
 }
 
 class _ShortcutCard extends StatelessWidget {
-  final IconData icon;
-  final String url;
+  final ShortcutItem item;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   const _ShortcutCard({
-    required this.icon,
-    required this.url,
+    required this.item,
     required this.onTap,
     required this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
-    final displayName = _getDisplayName(url);
+    final displayName = _getDisplayName(item.url);
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -450,7 +493,17 @@ class _ShortcutCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             ),
-            child: Icon(icon, color: Colors.blue.shade300, size: 32),
+            clipBehavior: Clip.antiAlias,
+            child: item.iconBytes != null
+                ? Image.memory(
+                    item.iconBytes!,
+                    fit: BoxFit.cover,
+                    width: 64,
+                    height: 64,
+                    errorBuilder: (context, error, stackTrace) =>
+                        _buildFaviconFallback(),
+                  )
+                : _buildFaviconFallback(),
           ),
           const SizedBox(height: 8),
           Text(
@@ -468,6 +521,20 @@ class _ShortcutCard extends StatelessWidget {
     );
   }
 
+  Widget _buildFaviconFallback() {
+    if (item.faviconUrl.isEmpty) {
+      return Icon(Icons.link, color: Colors.blue.shade300, size: 32);
+    }
+    return Image.network(
+      item.faviconUrl,
+      fit: BoxFit.contain,
+      width: 48,
+      height: 48,
+      errorBuilder: (context, error, stackTrace) =>
+          Icon(Icons.link, color: Colors.blue.shade300, size: 32),
+    );
+  }
+
   String _getDisplayName(String url) {
     try {
       final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
@@ -475,6 +542,44 @@ class _ShortcutCard extends StatelessWidget {
     } catch (_) {
       return url.length > 15 ? '${url.substring(0, 15)}...' : url;
     }
+  }
+}
+
+class _WebViewPage extends StatefulWidget {
+  final String url;
+  final String title;
+
+  const _WebViewPage({required this.url, required this.title});
+
+  @override
+  State<_WebViewPage> createState() => _WebViewPageState();
+}
+
+class _WebViewPageState extends State<_WebViewPage> {
+  late final WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        backgroundColor: const Color(0xFF1E1E2E),
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: WebViewWidget(controller: _controller),
+    );
   }
 }
 
