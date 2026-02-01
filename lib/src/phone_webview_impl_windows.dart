@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:logger/logger.dart';
 import 'package:webview_windows/webview_windows.dart';
 
-final _logger = Logger(printer: PrettyPrinter(methodCount: 0, colors: true));
+import 'app_logger.dart';
+
+final _logger = appLogger;
 
 const _phoneWidth = 390.0;
 const _phoneHeight = 844.0;
@@ -80,19 +81,35 @@ class _WindowsPhoneWebViewState extends State<_WindowsPhoneWebView> {
   @override
   void initState() {
     super.initState();
+    _logger.d('WebView initState, url: ${widget.url}');
     _init();
   }
 
   Future<void> _init() async {
+    _logger.d('WebView _init starting for ${widget.url}');
     try {
+      _logger.d('WebView calling initialize()');
       await _controller.initialize();
+      _logger.d('WebView initialize() done');
+
+      _logger.d('WebView setUserAgent');
       await _controller.setUserAgent(_mobileUserAgent);
+
+      _logger.d('WebView addScriptToExecuteOnDocumentCreated');
       await _controller.addScriptToExecuteOnDocumentCreated(_viewportScript);
+
+      _logger.d('WebView setBackgroundColor');
       await _controller.setBackgroundColor(const Color(0xFFFFFFFF));
+
+      _logger.d('WebView setPopupWindowPolicy');
       await _controller.setPopupWindowPolicy(WebviewPopupWindowPolicy.deny);
+
+      _logger.d('WebView loadUrl: ${widget.url}');
       await _controller.loadUrl(widget.url);
+      _logger.d('WebView loadUrl returned');
 
       _subs.add(_controller.loadingState.listen((state) {
+        _logger.d('WebView loadingState: $state');
         if (state == LoadingState.navigationCompleted && mounted) {
           _controller.executeScript(_viewportScript).catchError((e) {
             _logger.w('Post-load viewport inject: $e');
@@ -101,11 +118,12 @@ class _WindowsPhoneWebViewState extends State<_WindowsPhoneWebView> {
       }));
 
       if (mounted) setState(() {});
-    } catch (e) {
-      _logger.e('WebView init failed', error: e);
+      _logger.d('WebView _init completed successfully');
+    } catch (e, st) {
+      _logger.e('WebView init failed', error: e, stackTrace: st);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطا در بارگذاری: $e')),
+          SnackBar(content: Text('Load error: $e')),
         );
       }
     }

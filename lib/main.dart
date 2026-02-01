@@ -1,21 +1,31 @@
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:logger/logger.dart';
+import 'package:flutter/services.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'src/app_logger.dart';
+import 'src/log_persistence.dart';
 import 'src/phone_webview_impl.dart';
 
-final _logger = Logger(
-  printer: PrettyPrinter(methodCount: 0, colors: true),
-);
+final _logger = appLogger;
 
 void main() {
-  _logger.i('Suhome app starting');
-  runApp(const SuhomeApp());
+  WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (details) {
+    _logger.e('FlutterError', error: details.exception, stackTrace: details.stack);
+    FlutterError.presentError(details);
+  };
+
+  runZonedGuarded(() {
+    _logger.i('Suhome app starting');
+    runApp(const SuhomeApp());
+  }, (error, stackTrace) {
+    _logger.e('Uncaught error', error: error, stackTrace: stackTrace);
+  });
 }
 
 class SuhomeApp extends StatelessWidget {
@@ -141,7 +151,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
           _logger.i('Shortcut saved: ${item.url}');
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('ذخیره شد'),
+              content: Text('Saved'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -165,7 +175,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
         _logger.i('Wallpaper changed');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('والپیپر عوض شد'),
+            content: Text('Wallpaper changed'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -174,21 +184,36 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
   }
 
   Future<void> _openUrl(String url) async {
-    Uri uri = Uri.tryParse(url) ?? Uri.parse('https://$url');
-    if (!uri.hasScheme) {
-      uri = Uri.parse('https://$url');
-    }
-    _logger.d('Opening URL: ${uri.toString()}');
+    _logger.d('_openUrl called with: $url');
+    try {
+      Uri uri = Uri.tryParse(url) ?? Uri.parse('https://$url');
+      if (!uri.hasScheme) {
+        uri = Uri.parse('https://$url');
+      }
+      _logger.d('Opening URL: ${uri.toString()}');
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => _PhoneWebViewPage(
-          url: uri.toString(),
-          title: uri.host,
+      if (!mounted) {
+        _logger.w('Context not mounted, skipping navigation');
+        return;
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => _PhoneWebViewPage(
+            url: uri.toString(),
+            title: uri.host,
+          ),
         ),
-      ),
-    );
+      );
+      _logger.d('Returned from WebView page');
+    } catch (e, st) {
+      _logger.e('_openUrl failed', error: e, stackTrace: st);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 
   void _onSearch(String query) {
@@ -205,99 +230,65 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
 
   Widget _buildHeader() {
     final j = Jalali.fromDateTime(_now);
-    final weekday = j.formatter.wN; // نام روز
-    final dateStr = j.formatter.d; // روز
-    final monthStr = j.formatter.mN; // نام ماه
-    final yearStr = j.formatter.y; // سال
+    final weekday = j.formatter.wN;
+    final dateStr = j.formatter.d;
+    final monthStr = j.formatter.mN;
+    final yearStr = j.formatter.y;
     final timeStr =
         '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}:${_now.second.toString().padLeft(2, '0')}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // تاریخ و ساعت شمسی
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: 0.12),
-                Colors.white.withValues(alpha: 0.06),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(20),
+            color: Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.15),
+              color: Colors.white.withValues(alpha: 0.08),
               width: 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '$weekday $dateStr $monthStr $yearStr',
+                    timeStr,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.95),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
+                      color: Colors.white,
+                      fontSize: 48,
+                      fontWeight: FontWeight.w200,
+                      letterSpacing: 2,
+                      height: 1,
+                      fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.schedule_rounded,
-                        color: Colors.blue.shade300,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        timeStr,
-                        style: TextStyle(
-                          color: Colors.blue.shade200,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 8),
+                  Text(
+                    '$weekday $dateStr $monthStr $yearStr',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.3,
+                    ),
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.blue.withValues(alpha: 0.4),
-                    width: 1,
-                  ),
-                ),
-                child: Icon(
-                  Icons.calendar_today_rounded,
-                  color: Colors.blue.shade200,
-                  size: 28,
-                ),
+              Icon(
+                Icons.access_time_rounded,
+                color: Colors.white.withValues(alpha: 0.15),
+                size: 56,
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        // نوار جستجو
+        const SizedBox(height: 20),
         Container(
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.1),
@@ -321,7 +312,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
               fontSize: 16,
             ),
             decoration: InputDecoration(
-              hintText: 'جستجو یا آدرس سایت...',
+              hintText: 'Search or enter URL...',
               hintStyle: TextStyle(
                 color: Colors.white.withValues(alpha: 0.45),
                 fontSize: 15,
@@ -400,7 +391,7 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
                     child: _shortcuts.isEmpty
                         ? Center(
                             child: Text(
-                              'روی + بزن و سایت اضافه کن',
+                              'Tap + to add a website',
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.5),
                                 fontSize: 16,
@@ -445,6 +436,16 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
     );
   }
 
+  void _showLogViewer() {
+    _logger.d('Opening log viewer');
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LogViewerSheet(),
+    );
+  }
+
   Widget _buildRightToolbar() {
     return Container(
       width: 56,
@@ -468,10 +469,130 @@ class _NoxStyleHomeState extends State<NoxStyleHome> {
           _ToolbarButton(
             icon: Icons.wallpaper,
             onPressed: _onWallpaperPressed,
-            tooltip: 'عوض کردن والپیپر',
+            tooltip: 'Change wallpaper',
+          ),
+          const SizedBox(height: 16),
+          _ToolbarButton(
+            icon: Icons.bug_report,
+            onPressed: _showLogViewer,
+            tooltip: 'View logs',
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LogViewerSheet extends StatefulWidget {
+  @override
+  State<_LogViewerSheet> createState() => _LogViewerSheetState();
+}
+
+class _LogViewerSheetState extends State<_LogViewerSheet> {
+  String _persistedLogs = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPersisted();
+  }
+
+  Future<void> _loadPersisted() async {
+    final persisted = await loadPersistedLogs();
+    if (mounted) {
+      setState(() => _persistedLogs = persisted ?? '');
+    }
+  }
+
+  String get _allLogs {
+    final current = AppLogCollector.instance.allLogs;
+    if (_persistedLogs.isEmpty) return current;
+    return '--- Previous run ---\n$_persistedLogs\n\n--- Current run ---\n$current';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final logs = _allLogs;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.3,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          margin: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E2E),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 20,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Logs',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.copy, color: Colors.white70),
+                          tooltip: 'Copy logs',
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: logs),
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Logs copied to clipboard'),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Colors.white24),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(16),
+                  child: SelectableText(
+                    logs.isEmpty ? '(no logs yet)' : logs,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -512,7 +633,7 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
       _logger.w('Save attempted with empty URL');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('آدرس سایت رو وارد کن'),
+          content: Text('Enter the website URL'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -552,7 +673,7 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
                 Icon(Icons.add_circle, color: Colors.blue.shade400, size: 28),
                 const SizedBox(width: 12),
                 const Text(
-                  'سایت جدید',
+                  'New website',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -563,12 +684,12 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'ایکن (اختیاری - از فایل)',
+              'Icon (optional - from file)',
               style: TextStyle(color: Colors.white70, fontSize: 14),
             ),
             const SizedBox(height: 8),
             Text(
-              'اگر ایکون نزاری، فاویکون سایت خودش نمایش داده میشه',
+              'If you don\'t add an icon, the site favicon will be shown',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.5),
                 fontSize: 12,
@@ -608,7 +729,7 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'اضافه کن',
+                            'Add',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.5),
                               fontSize: 11,
@@ -623,7 +744,7 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
               TextButton.icon(
                 onPressed: () => setState(() => _customIconBytes = null),
                 icon: const Icon(Icons.close, size: 18),
-                label: const Text('حذف ایکون'),
+                label: const Text('Remove icon'),
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.red.shade300,
                 ),
@@ -631,7 +752,7 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
             ],
             const SizedBox(height: 24),
             const Text(
-              'آدرس سایت',
+              'Website URL',
               style: TextStyle(color: Colors.white70, fontSize: 14),
             ),
             const SizedBox(height: 8),
@@ -663,7 +784,7 @@ class _AddShortcutSheetState extends State<_AddShortcutSheet> {
               child: FilledButton.icon(
                 onPressed: _save,
                 icon: const Icon(Icons.save, size: 22),
-                label: const Text('ذخیره'),
+                label: const Text('Save'),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.blue.shade600,
                   foregroundColor: Colors.white,
@@ -838,6 +959,15 @@ class _PhoneWebViewPage extends StatelessWidget {
     );
   }
 
+  void _showLogViewer(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LogViewerSheet(),
+    );
+  }
+
   Widget _buildRightSidebar(BuildContext context) {
     return Container(
       width: 56,
@@ -855,13 +985,19 @@ class _PhoneWebViewPage extends StatelessWidget {
           _ToolbarButton(
             icon: Icons.copy_all,
             onPressed: () => _showStorageDialogAndOpen(context, isClone: true),
-            tooltip: 'کلون',
+            tooltip: 'Clone',
           ),
           const SizedBox(height: 16),
           _ToolbarButton(
             icon: Icons.open_in_new,
             onPressed: () => _showStorageDialogAndOpen(context, isClone: false),
-            tooltip: 'باز کن',
+            tooltip: 'Open',
+          ),
+          const SizedBox(height: 16),
+          _ToolbarButton(
+            icon: Icons.bug_report,
+            onPressed: () => _showLogViewer(context),
+            tooltip: 'View logs',
           ),
         ],
       ),
@@ -878,26 +1014,26 @@ class _StorageModeDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: const Color(0xFF1E1E2E),
-      title: Text(
-        'کوکی و دیتا',
-        style: const TextStyle(color: Colors.white),
+      title: const Text(
+        'Cookies & data',
+        style: TextStyle(color: Colors.white),
       ),
       content: Text(
-        'کوکی و دیتا مشترک باشه یا جدا؟',
+        'Share cookies & data or isolate?',
         style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, _StorageMode.shared),
-          child: const Text('مشترک (همون حساب)'),
+          child: const Text('Shared (same account)'),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, _StorageMode.isolated),
-          child: const Text('جدا (حساب جدید)'),
+          child: const Text('Isolated (new session)'),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('انصراف'),
+          child: const Text('Cancel'),
         ),
       ],
     );
